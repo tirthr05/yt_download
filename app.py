@@ -79,6 +79,9 @@ def download_video(url, format_choice):
 
     is_audio = "MP3" in format_choice
 
+    # cookies.txt sits next to app.py in the repo root
+    cookie_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies.txt")
+
     ydl_opts = {
         "format": format_map.get(format_choice, "best"),
         "outtmpl": f"{output_dir}/%(title)s.%(ext)s",
@@ -90,7 +93,8 @@ def download_video(url, format_choice):
         "retries": 5,
         "fragment_retries": 5,
         "progress_hooks": [_hook],
-        # ── Bot bypass fixes ──────────────────────────────────
+        # ── Bot bypass ────────────────────────────────────────
+        "cookiefile": cookie_file,          # ← your cookies.txt from GitHub
         "extractor_args": {
             "youtube": {
                 "player_client": ["android", "web", "ios"],
@@ -101,7 +105,6 @@ def download_video(url, format_choice):
             "Accept-Language": "en-US,en;q=0.9",
         },
         "socket_timeout": 30,
-        "nocheckcertificate": False,
         "geo_bypass": True,
     }
 
@@ -112,98 +115,81 @@ def download_video(url, format_choice):
             "preferredquality": "320",
         }]
 
-    # ── Auto-retry with different player clients on bot error ──
-    player_clients = [["android"], ["ios"], ["web"], ["android", "ios", "web"]]
-    last_error = None
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.extract_info(url, download=True)
 
-    for clients in player_clients:
-        try:
-            ydl_opts["extractor_args"]["youtube"]["player_client"] = clients
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.extract_info(url, download=True)
-            last_error = None
-            break  # success — exit retry loop
-        except Exception as e:
-            last_error = e
-            err_str = str(e).lower()
-            # Only retry on bot/sign-in errors
-            if "sign in" in err_str or "bot" in err_str or "confirm" in err_str:
-                _progress.update({"phase": "starting"})
-                continue
-            else:
-                # Non-bot error — raise immediately
-                raise e
+        files = [os.path.join(output_dir, f) for f in os.listdir(output_dir)
+                 if os.path.isfile(os.path.join(output_dir, f))]
+        if not files:
+            _progress["phase"] = "idle"
+            return "<p style='color:rgba(239,68,68,0.7);font-size:13px;margin:0;'>⚠ File not found.</p>", None
 
-    if last_error:
-        raise last_error
+        filepath     = max(files, key=os.path.getmtime)
+        filename     = os.path.basename(filepath)
+        file_size_mb = os.path.getsize(filepath) / (1024 * 1024)
+        mime_type    = "audio/mpeg" if is_audio else "video/mp4"
 
-    files = [os.path.join(output_dir, f) for f in os.listdir(output_dir)
-             if os.path.isfile(os.path.join(output_dir, f))]
-    if not files:
+        _progress.update({"pct": 99, "phase": "encoding"})
+
+        with open(filepath, "rb") as fh:
+            b64 = base64.b64encode(fh.read()).decode()
+
+        _progress["phase"] = "done"
+
+        html = f"""
+        <div style='font-family:Outfit,sans-serif;margin-bottom:16px;'>
+            <div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;'>
+                <span style='font-size:12px;color:rgba(255,255,255,0.45);'>Complete ✓</span>
+                <span style='font-size:13px;font-weight:700;color:#22c55e;'>100%</span>
+            </div>
+            <div style='width:100%;height:8px;background:rgba(255,255,255,0.06);border-radius:99px;overflow:hidden;'>
+                <div style='height:100%;width:100%;background:linear-gradient(90deg,#22c55e,#16a34a);
+                            border-radius:99px;box-shadow:0 0 12px rgba(34,197,94,0.5);'></div>
+            </div>
+        </div>
+        <div style='display:flex;align-items:center;gap:10px;margin-bottom:14px;'>
+            <div style='width:28px;height:28px;background:linear-gradient(135deg,#22c55e,#16a34a);border-radius:50%;
+                        display:flex;align-items:center;justify-content:center;font-size:13px;color:#fff;
+                        box-shadow:0 0 14px rgba(34,197,94,0.55);flex-shrink:0;'>✓</div>
+            <div>
+                <div style='color:rgba(255,255,255,0.6);font-size:13px;line-height:1.3;'>
+                    <strong style='color:#fbbf24;'>{filename[:52]}</strong>
+                </div>
+                <div style='color:rgba(255,255,255,0.22);font-size:11px;margin-top:2px;'>
+                    {file_size_mb:.1f} MB · {format_choice}
+                </div>
+            </div>
+        </div>
+        <a id='dl-link' href='data:{mime_type};base64,{b64}' download='{filename}'
+           style='display:flex;align-items:center;justify-content:center;gap:10px;width:100%;
+                  padding:15px 20px;background:linear-gradient(135deg,#22c55e 0%,#16a34a 100%);
+                  border-radius:13px;text-decoration:none;color:#fff;
+                  font-family:Outfit,sans-serif;font-size:15px;font-weight:700;
+                  box-shadow:0 6px 24px rgba(34,197,94,0.4);cursor:pointer;transition:all 0.2s;'
+           onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 12px 32px rgba(34,197,94,0.55)';"
+           onmouseout="this.style.transform='none';this.style.boxShadow='0 6px 24px rgba(34,197,94,0.4)';">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            ⬇ Save File &nbsp;·&nbsp; {file_size_mb:.1f} MB
+        </a>
+        <script>
+        (function tryClick() {{
+            var a = document.getElementById('dl-link');
+            if (a) {{ a.click(); }}
+            else   {{ setTimeout(tryClick, 150); }}
+        }})();
+        </script>"""
+
+        return html, filepath
+
+    except Exception as e:
         _progress["phase"] = "idle"
-        return "<p style='color:rgba(239,68,68,0.7);font-size:13px;margin:0;'>⚠ File not found.</p>", None
-
-    filepath     = max(files, key=os.path.getmtime)
-    filename     = os.path.basename(filepath)
-    file_size_mb = os.path.getsize(filepath) / (1024 * 1024)
-    mime_type    = "audio/mpeg" if is_audio else "video/mp4"
-
-    _progress.update({"pct": 99, "phase": "encoding"})
-
-    with open(filepath, "rb") as fh:
-        b64 = base64.b64encode(fh.read()).decode()
-
-    _progress["phase"] = "done"
-
-    html = f"""
-    <div style='font-family:Outfit,sans-serif;margin-bottom:16px;'>
-        <div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;'>
-            <span style='font-size:12px;color:rgba(255,255,255,0.45);'>Complete ✓</span>
-            <span style='font-size:13px;font-weight:700;color:#22c55e;'>100%</span>
-        </div>
-        <div style='width:100%;height:8px;background:rgba(255,255,255,0.06);border-radius:99px;overflow:hidden;'>
-            <div style='height:100%;width:100%;background:linear-gradient(90deg,#22c55e,#16a34a);
-                        border-radius:99px;box-shadow:0 0 12px rgba(34,197,94,0.5);'></div>
-        </div>
-    </div>
-    <div style='display:flex;align-items:center;gap:10px;margin-bottom:14px;'>
-        <div style='width:28px;height:28px;background:linear-gradient(135deg,#22c55e,#16a34a);border-radius:50%;
-                    display:flex;align-items:center;justify-content:center;font-size:13px;color:#fff;
-                    box-shadow:0 0 14px rgba(34,197,94,0.55);flex-shrink:0;'>✓</div>
-        <div>
-            <div style='color:rgba(255,255,255,0.6);font-size:13px;line-height:1.3;'>
-                <strong style='color:#fbbf24;'>{filename[:52]}</strong>
-            </div>
-            <div style='color:rgba(255,255,255,0.22);font-size:11px;margin-top:2px;'>
-                {file_size_mb:.1f} MB · {format_choice}
-            </div>
-        </div>
-    </div>
-    <a id='dl-link' href='data:{mime_type};base64,{b64}' download='{filename}'
-       style='display:flex;align-items:center;justify-content:center;gap:10px;width:100%;
-              padding:15px 20px;background:linear-gradient(135deg,#22c55e 0%,#16a34a 100%);
-              border-radius:13px;text-decoration:none;color:#fff;
-              font-family:Outfit,sans-serif;font-size:15px;font-weight:700;
-              box-shadow:0 6px 24px rgba(34,197,94,0.4);cursor:pointer;transition:all 0.2s;'
-       onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 12px 32px rgba(34,197,94,0.55)';"
-       onmouseout="this.style.transform='none';this.style.boxShadow='0 6px 24px rgba(34,197,94,0.4)';">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-             stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-            <polyline points="7 10 12 15 17 10"/>
-            <line x1="12" y1="15" x2="12" y2="3"/>
-        </svg>
-        ⬇ Save File &nbsp;·&nbsp; {file_size_mb:.1f} MB
-    </a>
-    <script>
-    (function tryClick() {{
-        var a = document.getElementById('dl-link');
-        if (a) {{ a.click(); }}
-        else   {{ setTimeout(tryClick, 150); }}
-    }})();
-    </script>"""
-
-    return html, filepath
+        return f"<p style='color:rgba(239,68,68,0.8);font-size:13px;margin:0;'>❌ {str(e)}</p>", None
 
 
 css = """
