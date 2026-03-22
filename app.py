@@ -68,18 +68,17 @@ def download_video(url, format_choice):
         try: os.remove(os.path.join(output_dir, old))
         except: pass
 
+    # ── Flexible format strings with multiple fallbacks ────────
     format_map = {
-        "1080p  MP4":  "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080]",
-        "4K  MP4":     "bestvideo[height<=2160][ext=mp4]+bestaudio[ext=m4a]/best[height<=2160]",
-        "2K  MP4":     "bestvideo[height<=1440][ext=mp4]+bestaudio[ext=m4a]/best[height<=1440]",
-        "720p  MP4":   "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720]",
-        "480p  MP4":   "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[height<=480]",
+        "1080p  MP4":  "bestvideo[height<=1080]+bestaudio/bestvideo[height<=1080]/best[height<=1080]/best",
+        "4K  MP4":     "bestvideo[height<=2160]+bestaudio/bestvideo[height<=2160]/best[height<=2160]/best",
+        "2K  MP4":     "bestvideo[height<=1440]+bestaudio/bestvideo[height<=1440]/best[height<=1440]/best",
+        "720p  MP4":   "bestvideo[height<=720]+bestaudio/bestvideo[height<=720]/best[height<=720]/best",
+        "480p  MP4":   "bestvideo[height<=480]+bestaudio/bestvideo[height<=480]/best[height<=480]/best",
         "MP3  Audio":  "bestaudio/best",
     }
 
     is_audio = "MP3" in format_choice
-
-    # cookies.txt sits next to app.py in the repo root
     cookie_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies.txt")
 
     ydl_opts = {
@@ -93,8 +92,7 @@ def download_video(url, format_choice):
         "retries": 5,
         "fragment_retries": 5,
         "progress_hooks": [_hook],
-        # ── Bot bypass ────────────────────────────────────────
-        "cookiefile": cookie_file,          # ← your cookies.txt from GitHub
+        "cookiefile": cookie_file,
         "extractor_args": {
             "youtube": {
                 "player_client": ["android", "web", "ios"],
@@ -285,7 +283,7 @@ with gr.Blocks(css=css, title="YT Downloader") as app:
             format_choice = gr.Radio(
                 choices=FORMAT_CHOICES,
                 value="1080p  MP4",
-                label="",
+                label=None,
                 elem_id="format-radio",
             )
 
@@ -323,6 +321,5 @@ with gr.Blocks(css=css, title="YT Downloader") as app:
 
     timer.tick(fn=tick, outputs=[result_html])
 
-# Render uses PORT env variable
 port = int(os.environ.get("PORT", 7860))
 app.launch(server_name="0.0.0.0", server_port=port)
